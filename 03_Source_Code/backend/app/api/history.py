@@ -2,11 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import Any
 
-from app.cores.database import get_db
+from database.database import get_db
 from app.models.user import User
 from app.models.laporan import Laporan, StatusLaporan
 from app.models.klaim import Klaim
-from app.api.deps import get_current_user
+from src.auth.deps import get_current_user
 from app.api.items import _laporan_to_item
 from app.api.admin import _klaim_to_admin_claim
 

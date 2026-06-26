@@ -3,12 +3,12 @@ from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
 
-from app.cores.database import get_db
+from database.database import get_db
 from app.models.user import User
 from app.schemas.laporan import LaporanCreate, LaporanResponse, LaporanUpdateStatus
 from app.services.laporan_service import LaporanService
 from app.services.upload_service import UploadService
-from app.api.deps import get_current_user, get_current_active_admin
+from src.auth.deps import get_current_user, get_current_active_admin
 
 from app.models.laporan import StatusLaporan, JenisLaporan, PublicStatusFilter
 

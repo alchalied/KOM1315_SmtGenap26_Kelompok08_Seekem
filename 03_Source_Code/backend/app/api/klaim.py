@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, status, File, UploadFile, Form
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.cores.database import get_db
+from database.database import get_db
 from app.models.user import User
 from app.schemas.klaim import KlaimCreate, KlaimResponse, KlaimVerify
 from app.services.klaim_service import KlaimService
 from app.services.upload_service import UploadService
-from app.api.deps import get_current_user, get_current_active_admin
+from src.auth.deps import get_current_user, get_current_active_admin
 
 router = APIRouter()
 

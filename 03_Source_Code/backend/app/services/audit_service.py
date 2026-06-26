@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
 from app.models.user import User
-from app.utils.audit_signature import AUDIT_SIGNATURE_ALGORITHM, sign_audit_log
+from digital_signature.audit_signature import AUDIT_SIGNATURE_ALGORITHM, sign_audit_log
 
 
 class AuditLogService:

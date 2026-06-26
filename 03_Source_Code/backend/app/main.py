@@ -1,11 +1,18 @@
+import sys
+from pathlib import Path
+
+# Add project root (03_Source_Code) to sys.path so sibling directories can be imported
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.cores.database import engine
+from database.database import engine
 from app.models.base import Base
 # Import all models here to ensure they are registered with Base before create_all
 from app.models import user, laporan, klaim, notifikasi, audit_log, activity_log
 from app.api import (
-    auth,
     items as items_api,
     admin as admin_api,
     laporan as laporan_api,
@@ -15,6 +22,7 @@ from app.api import (
     history as history_api,
     contact as contact_api,
 )
+from src.auth import auth
 
 app = FastAPI(
     title="LostnFound-IPB API",

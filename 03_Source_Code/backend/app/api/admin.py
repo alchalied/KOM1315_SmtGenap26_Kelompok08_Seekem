@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File, Q
 from sqlalchemy.orm import Session
 from typing import List
 
-from app.cores.database import get_db
+from database.database import get_db
 from app.models.user import User, UserRole
 from app.models.laporan import Laporan, StatusLaporan, JenisLaporan
 from app.models.klaim import Klaim, StatusKlaim
@@ -13,7 +13,7 @@ from app.schemas.admin import (
 )
 from app.schemas.audit import ActivityLogResponse, AuditLogResponse
 from app.schemas.item import ItemResponse
-from app.api.deps import get_current_user, get_current_active_admin
+from src.auth.deps import get_current_user, get_current_active_admin
 from app.services.klaim_service import KlaimService
 from app.services.upload_service import UploadService
 from app.services.notifikasi_service import NotifikasiService

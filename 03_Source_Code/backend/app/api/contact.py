@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from app.cores.database import get_db
+from database.database import get_db
 from app.models.user import User
 from app.models.laporan import Laporan
-from app.api.deps import get_current_user
+from src.auth.deps import get_current_user
 from app.services.notifikasi_service import NotifikasiService
 from app.models.notifikasi import TipeNotifikasi
 from app.schemas.contact import ContactReporterRequest

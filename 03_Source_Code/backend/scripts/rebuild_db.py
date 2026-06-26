@@ -7,8 +7,9 @@ from pathlib import Path
 from sqlalchemy.engine import make_url
 
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BACKEND_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(PROJECT_ROOT / "backend"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.cores.config import settings  # noqa: E402
 
@@ -80,7 +81,7 @@ def validate_runtime_requirements(stamp_alembic: bool, audit: bool) -> None:
 
 
 def rebuild_database() -> None:
-    from app.cores.database import engine
+    from database.database import engine
     from app.models.base import Base
 
     # Import all models so SQLAlchemy registers every table in Base.metadata.
@@ -105,7 +106,7 @@ def stamp_alembic_head() -> None:
 def audit_schema() -> bool:
     from sqlalchemy import inspect
 
-    from app.cores.database import engine
+    from database.database import engine
     from app.models.base import Base
 
     # Import all models so SQLAlchemy registers every table in Base.metadata.

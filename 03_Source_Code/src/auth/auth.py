@@ -6,11 +6,11 @@ from pydantic import BaseModel, EmailStr
 import secrets
 import os
 
-from app.cores.database import get_db
+from database.database import get_db
 from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, UserLogin, UserLoginResponse, ForgotPasswordRequest, ResetPasswordRequest
-from app.utils.security import get_password_hash, verify_password, create_access_token
-from app.api.deps import get_current_user
+from src.auth.security import get_password_hash, verify_password, create_access_token
+from src.auth.deps import get_current_user
 from app.services.email_service import EmailService
 from app.services.audit_service import AuditLogService
 

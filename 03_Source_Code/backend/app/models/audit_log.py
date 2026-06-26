@@ -26,6 +26,6 @@ class AuditLog(Base):
 
     @property
     def signature_valid(self) -> bool | None:
-        from app.utils.audit_signature import verify_audit_log_signature
+        from digital_signature.audit_signature import verify_audit_log_signature
 
         return verify_audit_log_signature(self)

@@ -2,13 +2,14 @@ from pathlib import Path
 import sys
 
 
-BACKEND_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(BACKEND_DIR))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT / "backend"))
+sys.path.insert(0, str(PROJECT_ROOT))
 
-from app.cores.database import SessionLocal  # noqa: E402
+from database.database import SessionLocal  # noqa: E402
 from app.models import activity_log, audit_log, klaim, laporan, notifikasi, user  # noqa: F401,E402
 from app.models.audit_log import AuditLog  # noqa: E402
-from app.utils.audit_signature import AUDIT_SIGNATURE_ALGORITHM, sign_audit_log  # noqa: E402
+from digital_signature.audit_signature import AUDIT_SIGNATURE_ALGORITHM, sign_audit_log  # noqa: E402
 
 
 def sign_existing_logs() -> None:

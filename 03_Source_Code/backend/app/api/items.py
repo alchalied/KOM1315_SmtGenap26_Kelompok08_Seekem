@@ -4,11 +4,11 @@ from sqlalchemy import or_
 from typing import List
 from datetime import datetime
 
-from app.cores.database import get_db
+from database.database import get_db
 from app.models.user import User
 from app.models.laporan import Laporan, StatusLaporan, JenisLaporan
 from app.schemas.item import ItemResponse
-from app.api.deps import get_current_user
+from src.auth.deps import get_current_user
 from app.services.upload_service import UploadService
 from app.services.activity_service import ActivityLogService
 
