@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from sqlalchemy.orm import Session
 from typing import Any
 from datetime import datetime, timedelta
@@ -12,6 +12,7 @@ from app.schemas.user import UserCreate, UserResponse, UserLogin, UserLoginRespo
 from app.utils.security import get_password_hash, verify_password, create_access_token
 from app.api.deps import get_current_user
 from app.services.email_service import EmailService
+from app.services.audit_service import AuditLogService
 
 router = APIRouter()
 
@@ -68,7 +69,12 @@ def _generate_and_send_verification(user: User, background_tasks: BackgroundTask
 
 
 @router.post("/register", response_model=UserResponse)
-def register_user(user_in: UserCreate, background_tasks: BackgroundTasks, db: Session = Depends(get_db)) -> Any:
+def register_user(
+    request: Request,
+    user_in: UserCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+) -> Any:
     """
     Register user baru.
     FE mengirim JSON: { name, email, nim, phone, password }
@@ -76,6 +82,14 @@ def register_user(user_in: UserCreate, background_tasks: BackgroundTasks, db: Se
     """
     user = db.query(User).filter(User.email == user_in.email).first()
     if user:
+        AuditLogService.create(
+            db=db,
+            action="auth.register.duplicate_email",
+            actor_email=user_in.email,
+            request=request,
+            success=False,
+        )
+        db.commit()
         raise HTTPException(
             status_code=400,
             detail="User dengan email ini sudah terdaftar.",
@@ -97,6 +111,16 @@ def register_user(user_in: UserCreate, background_tasks: BackgroundTasks, db: Se
     db.add(user)
     db.commit()
     db.refresh(user)
+    AuditLogService.create(
+        db=db,
+        action="auth.register",
+        actor=user,
+        resource_type="user",
+        resource_id=user.id,
+        detail={"email": user.email, "role": user.role.value},
+        request=request,
+    )
+    db.commit()
 
     # Kirim email verifikasi di background
     frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -113,7 +137,7 @@ def register_user(user_in: UserCreate, background_tasks: BackgroundTasks, db: Se
 
 
 @router.post("/login", response_model=UserLoginResponse)
-def login_user(login_data: UserLogin, db: Session = Depends(get_db)) -> Any:
+def login_user(request: Request, login_data: UserLogin, db: Session = Depends(get_db)) -> Any:
     """
     Login user.
     FE mengirim JSON: { email, password }
@@ -122,12 +146,40 @@ def login_user(login_data: UserLogin, db: Session = Depends(get_db)) -> Any:
     """
     user = db.query(User).filter(User.email == login_data.email).first()
     if not user or not verify_password(login_data.password, user.password_hash):
+        AuditLogService.create(
+            db=db,
+            action="auth.login.failed",
+            actor=user,
+            actor_email=login_data.email,
+            detail={"reason": "invalid_credentials"},
+            request=request,
+            success=False,
+        )
+        db.commit()
         raise HTTPException(status_code=400, detail="Email atau password salah")
 
     if not user.is_verified:
+        AuditLogService.create(
+            db=db,
+            action="auth.login.failed",
+            actor=user,
+            detail={"reason": "email_not_verified"},
+            request=request,
+            success=False,
+        )
+        db.commit()
         raise HTTPException(status_code=403, detail="Email Anda belum diverifikasi. Silakan cek kotak masuk email Anda.")
 
     access_token = create_access_token(data={"sub": user.email})
+    AuditLogService.create(
+        db=db,
+        action="auth.login.success",
+        actor=user,
+        resource_type="user",
+        resource_id=user.id,
+        request=request,
+    )
+    db.commit()
 
     return UserLoginResponse(
         id=user.id,
@@ -147,19 +199,36 @@ def read_users_me(current_user: User = Depends(get_current_user)):
 
 
 @router.get("/verify-email")
-def verify_email(token: str, db: Session = Depends(get_db)):
+def verify_email(request: Request, token: str, db: Session = Depends(get_db)):
     """
     Endpoint untuk verifikasi email berdasarkan token.
     Dipanggil dari frontend /verify-email?token=xyz
     """
     user = db.query(User).filter(User.verification_token == token).first()
     if not user:
+        AuditLogService.create(
+            db=db,
+            action="auth.email_verify.failed",
+            detail={"reason": "invalid_token"},
+            request=request,
+            success=False,
+        )
+        db.commit()
         raise HTTPException(status_code=400, detail="Token verifikasi tidak valid atau sudah kedaluwarsa.")
 
     # Cek apakah token sudah melewati batas waktu 24 jam
     if user.verification_token_created_at:
         token_age = datetime.utcnow() - user.verification_token_created_at
         if token_age > timedelta(hours=VERIFICATION_TOKEN_EXPIRE_HOURS):
+            AuditLogService.create(
+                db=db,
+                action="auth.email_verify.failed",
+                actor=user,
+                detail={"reason": "expired_token"},
+                request=request,
+                success=False,
+            )
+            db.commit()
             raise HTTPException(
                 status_code=400,
                 detail="Token verifikasi sudah kedaluwarsa. Silakan minta kirim ulang email verifikasi.",
@@ -168,6 +237,14 @@ def verify_email(token: str, db: Session = Depends(get_db)):
     user.is_verified = True
     user.verification_token = None
     user.verification_token_created_at = None
+    AuditLogService.create(
+        db=db,
+        action="auth.email_verify.success",
+        actor=user,
+        resource_type="user",
+        resource_id=user.id,
+        request=request,
+    )
 
     db.commit()
     return {"status": "success", "message": "Email berhasil diverifikasi. Anda sekarang dapat login."}
@@ -175,6 +252,7 @@ def verify_email(token: str, db: Session = Depends(get_db)):
 
 @router.post("/resend-verification")
 def resend_verification(
+    request: Request,
     body: ResendVerificationRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
@@ -186,6 +264,14 @@ def resend_verification(
     """
     check_resend_verif_rate_limit(body.email)
     user = db.query(User).filter(User.email == body.email).first()
+    AuditLogService.create(
+        db=db,
+        action="auth.verification_resend.requested",
+        actor=user,
+        actor_email=body.email,
+        request=request,
+    )
+    db.commit()
 
     # Untuk keamanan, selalu kembalikan pesan sukses agar attacker
     # tidak bisa menggunakan endpoint ini untuk enumerasi email.
@@ -213,12 +299,21 @@ def resend_verification(
 
 @router.post("/forgot-password")
 def forgot_password(
+    request: Request,
     body: ForgotPasswordRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     check_forgot_pwd_rate_limit(body.email)
     user = db.query(User).filter(User.email == body.email).first()
+    AuditLogService.create(
+        db=db,
+        action="auth.forgot_password.requested",
+        actor=user,
+        actor_email=body.email,
+        request=request,
+    )
+    db.commit()
     
     success_msg = "Jika email terdaftar, tautan untuk mengatur ulang kata sandi telah dikirim."
 
@@ -257,18 +352,43 @@ def forgot_password(
 
 
 @router.post("/reset-password")
-def reset_password(body: ResetPasswordRequest, db: Session = Depends(get_db)):
+def reset_password(request: Request, body: ResetPasswordRequest, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.reset_token == body.token).first()
     
     if not user:
+        AuditLogService.create(
+            db=db,
+            action="auth.reset_password.failed",
+            detail={"reason": "invalid_token"},
+            request=request,
+            success=False,
+        )
+        db.commit()
         raise HTTPException(status_code=400, detail="Token reset password tidak valid atau sudah kedaluwarsa.")
         
     if not user.reset_token_expires or datetime.utcnow() > user.reset_token_expires:
+        AuditLogService.create(
+            db=db,
+            action="auth.reset_password.failed",
+            actor=user,
+            detail={"reason": "expired_token"},
+            request=request,
+            success=False,
+        )
+        db.commit()
         raise HTTPException(status_code=400, detail="Token reset password sudah kedaluwarsa. Silakan minta tautan baru.")
 
     user.password_hash = get_password_hash(body.new_password)
     user.reset_token = None
     user.reset_token_expires = None
+    AuditLogService.create(
+        db=db,
+        action="auth.reset_password.success",
+        actor=user,
+        resource_type="user",
+        resource_id=user.id,
+        request=request,
+    )
     db.commit()
 
     return {"status": "success", "message": "Kata sandi berhasil diatur ulang. Silakan login dengan kata sandi baru Anda."}

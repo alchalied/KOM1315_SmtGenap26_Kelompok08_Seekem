@@ -18,6 +18,9 @@ class Settings:
     SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "your_secret_key_here")
     ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7 # 7 days
+    FIELD_ENCRYPTION_KEY: str = os.getenv("FIELD_ENCRYPTION_KEY", "")
+    AUDIT_SIGNATURE_PRIVATE_KEY: str = os.getenv("AUDIT_SIGNATURE_PRIVATE_KEY", "")
+    AUDIT_SIGNATURE_PUBLIC_KEY: str = os.getenv("AUDIT_SIGNATURE_PUBLIC_KEY", "")
 
     # Konfigurasi Cloudinary
     CLOUDINARY_CLOUD_NAME: str = os.getenv("CLOUDINARY_CLOUD_NAME", "")

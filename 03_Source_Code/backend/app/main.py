@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.cores.database import engine
 from app.models.base import Base
 # Import all models here to ensure they are registered with Base before create_all
-from app.models import user, laporan, klaim, notifikasi
+from app.models import user, laporan, klaim, notifikasi, audit_log, activity_log
 from app.api import (
     auth,
     items as items_api,

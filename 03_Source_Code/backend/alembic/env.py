@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from app.cores.config import settings
 from app.models.base import Base
-from app.models import user, laporan, klaim, notifikasi
+from app.models import user, laporan, klaim, notifikasi, audit_log, activity_log
 
 target_metadata = Base.metadata
 

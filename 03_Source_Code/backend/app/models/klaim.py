@@ -3,6 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import enum
 from app.models.base import Base
+from app.utils.encryption import EncryptedString
 
 class StatusKlaim(str, enum.Enum):
     pending = "pending"
@@ -24,7 +25,7 @@ class Klaim(Base):
     owner_name = Column(String(255), nullable=True)
     nim = Column(String(50), nullable=True)
     faculty = Column(String(255), nullable=True)
-    contact = Column(String(255), nullable=True)
+    contact = Column(EncryptedString(512), nullable=True)
     
     status_klaim = Column(Enum(StatusKlaim), default=StatusKlaim.pending, nullable=False)
     

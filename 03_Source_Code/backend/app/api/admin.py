@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File, Query, Request
 from sqlalchemy.orm import Session
 from typing import List
 
 from app.cores.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.laporan import Laporan, StatusLaporan, JenisLaporan
 from app.models.klaim import Klaim, StatusKlaim
 from app.schemas.admin import (
@@ -11,12 +11,16 @@ from app.schemas.admin import (
     AdminClaimResponse, AdminClaimCreate, AdminClaimAction,
     AdminItemAction
 )
+from app.schemas.audit import ActivityLogResponse, AuditLogResponse
 from app.schemas.item import ItemResponse
 from app.api.deps import get_current_user, get_current_active_admin
 from app.services.klaim_service import KlaimService
 from app.services.upload_service import UploadService
 from app.services.notifikasi_service import NotifikasiService
+from app.services.audit_service import AuditLogService
 from app.models.notifikasi import TipeNotifikasi
+from app.models.audit_log import AuditLog
+from app.models.activity_log import ActivityLog
 
 router = APIRouter()
 
@@ -139,6 +143,7 @@ def get_verification_report_by_id(
 
 @router.patch("/verification/{report_id}", response_model=AdminReportResponse)
 def verify_report(
+    request: Request,
     report_id: int,
     body: AdminVerifyAction,
     db: Session = Depends(get_db),
@@ -154,6 +159,7 @@ def verify_report(
 
     try:
         if body.action == "approve":
+            old_status = lap.status.value
             lap.status = StatusLaporan.published
             NotifikasiService.create_notifikasi(
                 db=db,
@@ -162,6 +168,7 @@ def verify_report(
                 tipe=TipeNotifikasi.SUCCESS,
             )
         elif body.action == "reject":
+            old_status = lap.status.value
             lap.status = StatusLaporan.rejected
             NotifikasiService.create_notifikasi(
                 db=db,
@@ -172,6 +179,20 @@ def verify_report(
         else:
             raise HTTPException(status_code=400, detail="Action harus 'approve' atau 'reject'")
 
+        AuditLogService.create(
+            db=db,
+            action=f"admin.report.{body.action}",
+            actor=current_admin,
+            resource_type="laporan",
+            resource_id=lap.id,
+            detail={
+                "old_status": old_status,
+                "new_status": lap.status.value,
+                "item_name": lap.nama_barang,
+                "reporter_id": lap.pelapor_id,
+            },
+            request=request,
+        )
         db.commit()
         db.refresh(lap)
         return _laporan_to_admin_report(lap)
@@ -218,6 +239,7 @@ def get_claim_by_id(
 
 @router.patch("/claims/{claim_id}", response_model=AdminClaimResponse)
 def verify_claim(
+    request: Request,
     claim_id: int,
     body: AdminClaimAction,
     db: Session = Depends(get_db),
@@ -234,6 +256,8 @@ def verify_claim(
     lap = db.query(Laporan).filter(Laporan.id == klm.laporan_id).first()
 
     try:
+        old_claim_status = klm.status_klaim.value
+        old_report_status = lap.status.value if lap else None
         if body.action == "approve":
             klm.status_klaim = StatusKlaim.approved
             NotifikasiService.create_notifikasi(
@@ -255,6 +279,22 @@ def verify_claim(
         else:
             raise HTTPException(status_code=400, detail="Action harus 'approve' atau 'reject'")
 
+        AuditLogService.create(
+            db=db,
+            action=f"admin.claim.{body.action}",
+            actor=current_admin,
+            resource_type="klaim",
+            resource_id=klm.id,
+            detail={
+                "old_claim_status": old_claim_status,
+                "new_claim_status": klm.status_klaim.value,
+                "old_report_status": old_report_status,
+                "new_report_status": lap.status.value if lap else None,
+                "laporan_id": klm.laporan_id,
+                "claimant_id": klm.pengklaim_id,
+            },
+            request=request,
+        )
         db.commit()
         db.refresh(klm)
         return _klaim_to_admin_claim(klm)
@@ -311,6 +351,7 @@ def get_posted_items(
 
 @router.patch("/items/{item_id}", response_model=ItemResponse)
 def manage_posted_item(
+    request: Request,
     item_id: int,
     body: AdminItemAction,
     db: Session = Depends(get_db),
@@ -325,6 +366,8 @@ def manage_posted_item(
     if not lap:
         raise HTTPException(status_code=404, detail="Barang tidak ditemukan")
 
+    old_status = lap.status.value
+    affected_claim_ids = []
     if body.action == "delete":
         lap.status = StatusLaporan.rejected # as a form of deletion
     elif body.action == "hold":
@@ -340,13 +383,77 @@ def manage_posted_item(
         ).all()
         for claim in claims:
             claim.status_klaim = StatusKlaim.rejected
+            affected_claim_ids.append(claim.id)
     else:
         raise HTTPException(status_code=400, detail="Action tidak dikenal")
 
+    AuditLogService.create(
+        db=db,
+        action=f"admin.item.{body.action}",
+        actor=current_admin,
+        resource_type="laporan",
+        resource_id=lap.id,
+        detail={
+            "old_status": old_status,
+            "new_status": lap.status.value,
+            "item_name": lap.nama_barang,
+            "affected_claim_ids": affected_claim_ids,
+        },
+        request=request,
+    )
     db.commit()
     db.refresh(lap)
     
     item_res = _laporan_to_item(lap)
     item_res["postingStatus"] = "held" if body.action == "hold" else "posted"
     return item_res
+
+
+@router.get("/audit-logs", response_model=List[AuditLogResponse])
+def get_audit_logs(
+    limit: int = Query(100, ge=1, le=500),
+    action: str | None = Query(None),
+    actor_email: str | None = Query(None),
+    resource_type: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_active_admin),
+):
+    query = db.query(AuditLog)
+    operational_actions = {
+        "laporan.created",
+        "klaim.created",
+        "item.claimed",
+        "item.resolved",
+    }
+    query = query.filter(~AuditLog.action.in_(operational_actions))
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if actor_email:
+        query = query.filter(AuditLog.actor_email == actor_email)
+    if resource_type:
+        query = query.filter(AuditLog.resource_type == resource_type)
+
+    return query.order_by(AuditLog.created_at.desc()).limit(limit).all()
+
+
+@router.get("/activity-logs", response_model=List[ActivityLogResponse])
+def get_activity_logs(
+    limit: int = Query(100, ge=1, le=500),
+    event_type: str | None = Query(None),
+    resource_type: str | None = Query(None),
+    db: Session = Depends(get_db),
+    current_admin: User = Depends(get_current_active_admin),
+):
+    admin_user_ids = db.query(User.id).filter(User.role == UserRole.admin)
+    admin_emails = db.query(User.email).filter(User.role == UserRole.admin)
+    query = db.query(ActivityLog).filter(
+        (ActivityLog.actor_user_id.is_(None) | ~ActivityLog.actor_user_id.in_(admin_user_ids)),
+        (ActivityLog.actor_email.is_(None) | ~ActivityLog.actor_email.in_(admin_emails)),
+    )
+    if event_type:
+        query = query.filter(ActivityLog.event_type == event_type)
+    if resource_type:
+        query = query.filter(ActivityLog.resource_type == resource_type)
+
+    return query.order_by(ActivityLog.created_at.desc()).limit(limit).all()
 

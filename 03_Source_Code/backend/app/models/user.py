@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Enum, Boolean, DateTime
 from sqlalchemy.orm import relationship
 from app.models.base import Base
+from app.utils.encryption import EncryptedString
 import enum
 
 class UserRole(str, enum.Enum):
@@ -14,7 +15,7 @@ class User(Base):
     name = Column(String(255), nullable=False)
     email = Column(String(255), unique=True, index=True, nullable=False)
     nim = Column(String(50), nullable=False)
-    phone = Column(String(20), nullable=False)
+    phone = Column(EncryptedString(512), nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.civitas, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)

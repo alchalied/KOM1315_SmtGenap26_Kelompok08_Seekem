@@ -10,6 +10,7 @@ from app.models.laporan import Laporan, StatusLaporan, JenisLaporan
 from app.schemas.item import ItemResponse
 from app.api.deps import get_current_user
 from app.services.upload_service import UploadService
+from app.services.activity_service import ActivityLogService
 
 from app.models.klaim import Klaim, StatusKlaim
 from app.models.notifikasi import TipeNotifikasi
@@ -167,6 +168,17 @@ async def report_item(
         status=StatusLaporan.pending,
     )
     db.add(new_lap)
+    db.flush()
+    ActivityLogService.create(
+        db=db,
+        event_type="laporan.created",
+        actor=current_user,
+        resource_type="laporan",
+        resource_id=new_lap.id,
+        title=f"Laporan baru: {name}",
+        description=f"{jenis.value} di {location} ({category})",
+        status=new_lap.status.value,
+    )
     db.commit()
     db.refresh(new_lap)
     return _laporan_to_item(new_lap)
@@ -193,7 +205,18 @@ def confirm_lost_item_claimed(
         raise HTTPException(status_code=400, detail="Barang sudah berstatus selesai")
 
     # Set status jadi resolved
+    old_status = lap.status.value
     lap.status = StatusLaporan.resolved
+    ActivityLogService.create(
+        db=db,
+        event_type="item.resolved",
+        actor=current_user,
+        resource_type="laporan",
+        resource_id=lap.id,
+        title=f"Item selesai: {lap.nama_barang}",
+        description=f"{old_status} -> {lap.status.value}",
+        status=lap.status.value,
+    )
     db.commit()
     db.refresh(lap)
     
@@ -252,6 +275,7 @@ async def create_claim(
         db.add(new_klaim)
 
         # Update status laporan menjadi claimed
+        old_status = lap.status.value
         lap.status = StatusLaporan.claimed
 
         # Notifikasi ke pemilik laporan
@@ -262,9 +286,30 @@ async def create_claim(
             tipe=TipeNotifikasi.INFO,
         )
 
+        db.flush()
+        ActivityLogService.create(
+            db=db,
+            event_type="klaim.created",
+            actor=current_user,
+            resource_type="klaim",
+            resource_id=new_klaim.id,
+            title=f"Klaim masuk: {lap.nama_barang}",
+            description=description,
+            status=new_klaim.status_klaim.value,
+        )
+        ActivityLogService.create(
+            db=db,
+            event_type="item.claimed",
+            actor=current_user,
+            resource_type="laporan",
+            resource_id=lap.id,
+            title=f"Item diklaim: {lap.nama_barang}",
+            description=f"{old_status} -> {lap.status.value}; klaim #{new_klaim.id}",
+            status=lap.status.value,
+        )
+
         db.commit()
         db.refresh(new_klaim)
-        
         return _klaim_to_admin_claim(new_klaim)
     except HTTPException:
         raise
